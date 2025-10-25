@@ -830,7 +830,7 @@
         // ===============================
         // API endpoints and configuration
         // ===============================
-               const API_ENDPOINTS = {
+                       const API_ENDPOINTS = {
             stockSymbols: 'https://BrsApi.ir/Api/Tsetmc/AllSymbols.php?key=BKNzfpdXhJMcUANBeAAcNT24Cdys8MES',
             stockIndex: 'https://BrsApi.ir/Api/Tsetmc/Index.php?key=BKNzfpdXhJMcUANBeAAcNT24Cdys8MES&type=1',
             farabourseIndex: 'https://BrsApi.ir/Api/Tsetmc/Index.php?key=BKNzfpdXhJMcUANBeAAcNT24Cdys8MES&type=2',
@@ -844,6 +844,344 @@
             crypto2: 'https://BrsApi.ir/Api/Market/Gold_Currency.php?key=BKNzfpdXhJMcUANBeAAcNT24Cdys8MES&type=3'
         };
 
+        const API_NAMES = {
+            stockSymbols: 'نمادهای بورس',
+            stockIndex: 'شاخص بورس',
+            farabourseIndex: 'شاخص فرابورس',
+            selectedIndex: 'شاخص منتخب',
+            crypto: 'ارز دیجیتال',
+            commodityMetals: 'فلزات گرانبها',
+            commodityBaseMetals: 'فلزات اساسی',
+            commodityEnergy: 'انرژی',
+            gold: 'طلا و سکه',
+            currency: 'ارز',
+            crypto2: 'ارز دیجیتال (منبع ۲)'
+        };
+
+        // ===============================
+        // سیستم نظارت هوشمند
+        // ===============================
+        class APIMonitoringSystem {
+            constructor() {
+                this.apiStatus = {};
+                this.connectionHistory = [];
+                this.alerts = [];
+                this.monitoringInterval = null;
+                this.isMonitoring = false;
+                
+                this.initializeMonitoring();
+            }
+
+            initializeMonitoring() {
+                // مقداردهی اولیه وضعیت همه APIها
+                for (const [key, url] of Object.entries(API_ENDPOINTS)) {
+                    this.apiStatus[key] = {
+                        name: API_NAMES[key],
+                        url: url,
+                        status: 'unknown',
+                        lastCheck: null,
+                        responseTime: null,
+                        successRate: 0,
+                        errorCount: 0,
+                        successCount: 0,
+                        lastError: null,
+                        shouldBeActive: this.shouldAPIBeActive(key)
+                    };
+                }
+            }
+
+            // بررسی ساعات کاری APIها
+            shouldAPIBeActive(apiKey) {
+                const tehranTime = this.getTehranTime();
+                const hour = tehranTime.getHours();
+                const minute = tehranTime.getMinutes();
+                const day = tehranTime.getDay();
+                
+                // APIهای بورس فقط در ساعات کاری فعال هستند
+                if (apiKey.includes('stock') || apiKey.includes('Index')) {
+                    if (day >= 5) return false; // جمعه و شنبه
+                    if (hour < 9 || hour > 12) return false;
+                    if (hour === 12 && minute > 30) return false;
+                }
+                
+                return true;
+            }
+
+            getTehranTime() {
+                const now = new Date();
+                const tehranOffset = 3.5 * 60 * 60 * 1000; // UTC+3:30
+                return new Date(now.getTime() + tehranOffset);
+            }
+
+            // شروع نظارت خودکار
+            startAutoMonitoring() {
+                if (this.monitoringInterval) {
+                    clearInterval(this.monitoringInterval);
+                }
+                
+                this.isMonitoring = true;
+                this.monitoringInterval = setInterval(() => {
+                    this.checkAllAPIs();
+                }, 60000); // هر 1 دقیقه
+                
+                // اولین بررسی فوری
+                this.checkAllAPIs();
+                
+                showNotification('سیستم نظارت خودکار APIها فعال شد', 'success');
+            }
+
+            // توقف نظارت
+            stopAutoMonitoring() {
+                if (this.monitoringInterval) {
+                    clearInterval(this.monitoringInterval);
+                    this.monitoringInterval = null;
+                }
+                this.isMonitoring = false;
+                showNotification('سیستم نظارت خودکار متوقف شد', 'warning');
+            }
+
+            // بررسی وضعیت همه APIها
+            async checkAllAPIs() {
+                const promises = [];
+                
+                for (const [key, apiInfo] of Object.entries(this.apiStatus)) {
+                    promises.push(this.checkSingleAPI(key, apiInfo));
+                }
+                
+                await Promise.all(promises);
+                this.updateMonitoringDisplay();
+                this.updateConnectionChart();
+            }
+
+            // بررسی وضعیت یک API خاص
+            async checkSingleAPI(apiKey, apiInfo) {
+                // به‌روزرسانی وضعیت ساعات کاری
+                apiInfo.shouldBeActive = this.shouldAPIBeActive(apiKey);
+                
+                if (!apiInfo.shouldBeActive) {
+                    apiInfo.status = 'inactive_hours';
+                    apiInfo.lastCheck = new Date();
+                    return;
+                }
+
+                try {
+                    const startTime = Date.now();
+                    const response = await axios.get(apiInfo.url, {
+                        timeout: 10000,
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    const responseTime = Date.now() - startTime;
+                    
+                    // ثبت موفقیت
+                    apiInfo.status = 'connected';
+                    apiInfo.lastCheck = new Date();
+                    apiInfo.responseTime = responseTime;
+                    apiInfo.successCount++;
+                    apiInfo.lastError = null;
+                    
+                    // محاسبه نرخ موفقیت
+                    const totalRequests = apiInfo.successCount + apiInfo.errorCount;
+                    apiInfo.successRate = totalRequests > 0 ? (apiInfo.successCount / totalRequests) * 100 : 0;
+                    
+                    // ثبت در تاریخچه
+                    this.connectionHistory.push({
+                        api: apiKey,
+                        timestamp: new Date(),
+                        status: 'success',
+                        responseTime: responseTime
+                    });
+                    
+                } catch (error) {
+                    // ثبت خطا
+                    apiInfo.status = 'disconnected';
+                    apiInfo.lastCheck = new Date();
+                    apiInfo.errorCount++;
+                    apiInfo.lastError = error.message;
+                    
+                    // محاسبه نرخ موفقیت
+                    const totalRequests = apiInfo.successCount + apiInfo.errorCount;
+                    apiInfo.successRate = totalRequests > 0 ? (apiInfo.successCount / totalRequests) * 100 : 0;
+                    
+                    // ثبت در تاریخچه
+                    this.connectionHistory.push({
+                        api: apiKey,
+                        timestamp: new Date(),
+                        status: 'error',
+                        error: error.message
+                    });
+                    
+                    // ارسال هشدار
+                    this.sendAlert(apiKey, `قطع ارتباط با ${apiInfo.name}`, error.message);
+                }
+            }
+
+            // ارسال هشدار
+            sendAlert(apiKey, title, message) {
+                const alert = {
+                    id: Date.now(),
+                    apiKey: apiKey,
+                    apiName: API_NAMES[apiKey],
+                    title: title,
+                    message: message,
+                    timestamp: new Date(),
+                    read: false
+                };
+                
+                this.alerts.unshift(alert);
+                
+                // نمایش نوتیفیکیشن
+                showNotification(`🚨 ${title}: ${message}`, 'error');
+                
+                // پخش صدای هشدار (در صورت نیاز)
+                this.playAlertSound();
+                
+                // حفظ هشدارها (حداکثر 50 مورد)
+                if (this.alerts.length > 50) {
+                    this.alerts = this.alerts.slice(0, 50);
+                }
+                
+                this.updateAlertsDisplay();
+            }
+
+            playAlertSound() {
+                // ایجاد صدای هشدار ساده
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+                    
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                    
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+                } catch (error) {
+                    console.log('امکان پخش صدا وجود ندارد');
+                }
+            }
+
+            // به‌روزرسانی نمایش وضعیت
+            updateMonitoringDisplay() {
+                this.updateSidebarStatus();
+                this.updateLiveMonitoring();
+                this.updatePerformanceStats();
+                this.updateConnectionStats();
+            }
+
+            // به‌روزرسانی وضعیت در sidebar
+            updateSidebarStatus() {
+                const container = document.getElementById('apiStatusContainer');
+                let html = '';
+                
+                for (const [key, apiInfo] of Object.entries(this.apiStatus)) {
+                    let statusClass = 'api-status ';
+                    let statusText = '';
+                    let indicatorClass = '';
+                    
+                    if (!apiInfo.shouldBeActive) {
+                        statusClass += 'warning';
+                        statusText = '⏸ غیرفعال (ساعات کاری)';
+                        indicatorClass = 'status-warning';
+                    } else if (apiInfo.status === 'connected') {
+                        statusClass += 'connected';
+                        statusText = `✅ متصل (${apiInfo.responseTime}ms)`;
+                        indicatorClass = 'status-connected';
+                    } else if (apiInfo.status === 'disconnected') {
+                        statusClass += 'disconnected';
+                        statusText = '❌ قطع ارتباط';
+                        indicatorClass = 'status-disconnected';
+                    } else {
+                        statusClass += 'warning';
+                        statusText = '🔍 در حال بررسی...';
+                        indicatorClass = 'status-warning';
+                    }
+                    
+                    html += `
+                        <div class="${statusClass}">
+                            <div>
+                                <strong>${apiInfo.name}</strong>
+                                <br>
+                                <small>${statusText}</small>
+                            </div>
+                            <span class="status-indicator ${indicatorClass}"></span>
+                        </div>
+                    `;
+                }
+                
+                container.innerHTML = html;
+            }
+
+            // به‌روزرسانی آمار اتصال
+            updateConnectionStats() {
+                let connected = 0;
+                let disconnected = 0;
+                let total = 0;
+                
+                for (const apiInfo of Object.values(this.apiStatus)) {
+                    if (apiInfo.shouldBeActive) {
+                        total++;
+                        if (apiInfo.status === 'connected') {
+                            connected++;
+                        } else if (apiInfo.status === 'disconnected') {
+                            disconnected++;
+                        }
+                    }
+                }
+                
+                document.getElementById('connectedCount').textContent = connected;
+                document.getElementById('disconnectedCount').textContent = disconnected;
+                document.getElementById('totalCount').textContent = total;
+            }
+
+            // متغیرهای جهانی
+        // ===============================
+        let marketData = {
+            stocks: [],
+            indices: [],
+            crypto: [],
+            gold: [],
+            currency: [],
+            commodities: []
+        };
+
+        let monitoringSystem = new APIMonitoringSystem();
+
+        // ===============================
+        // مقداردهی اولیه برنامه
+        // ===============================
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        function initializeApp() {
+            setupEventListeners();
+            setupTabs();
+            initializeCharts();
+            loadMarketData();
+            monitoringSystem.startAutoMonitoring();
+            updateMarketHours();
+        }
+
+        function setupEventListeners() {
+            document.getElementById('refreshBtn').addEventListener('click', loadMarketData);
+            document.getElementById('analyzeBtn').addEventListener('click', performAIAnalysis);
+            document.getElementById('riskBtn').addEventListener('click', performRiskAssessment);
+            document.getElementById('tradeBtn').addEventListener('click', generateTradeSuggestions);
+            document.getElementById('monitorBtn').addEventListener('click', () => monitoringSystem.checkAllAPIs());
+            document.getElementById('marketType').addEventListener('change', updateCharts);
+            document.getElementById('timeFrame').addEventListener('change', updateCharts);
+        }
+        
         // ===============================
         // توابع جدید برای اتصال واقعی به API
         // ===============================
