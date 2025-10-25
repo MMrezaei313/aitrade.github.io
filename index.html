@@ -1001,7 +1001,6 @@
                         </div>
                     </div>
 
-                    <!-- تحلیل اهمیت ویژگی‌ها -->
 <div class="tab-content" id="feature-importance-tab">
     <div class="card">
         <h2>تحلیل جامع اهمیت ویژگی‌ها</h2>
@@ -1021,7 +1020,6 @@
     </div>
 </div>
 
-<!-- قابلیت تفسیر مدل -->
 <div class="tab-content" id="model-interpretability-tab">
     <div class="card">
         <h2>تحلیل قابلیت تفسیر مدل</h2>
@@ -1031,7 +1029,6 @@
     </div>
 </div>
 
-<!-- تحلیل احساسات پیشرفته -->
 <div class="tab-content" id="advanced-sentiment-tab">
     <div class="card">
         <h2>تحلیل احساسات بازار با Transformer</h2>
@@ -1600,10 +1597,14 @@
                 this.setupPerformanceMonitoring();
             }
 
-            setupEventListeners() {
-                document.addEventListener('click', this.handleGlobalClick.bind(this));
-                this.setupDebouncedInputs();
-                        document.addEventListener('click', (event) => {
+setupEventListeners() {
+    document.addEventListener('click', this.handleGlobalClick.bind(this));
+    this.setupDebouncedInputs();
+    this.setupTabSpecificHandlers();
+}
+
+setupTabSpecificHandlers() {
+    document.addEventListener('click', (event) => {
         const target = event.target;
         if (target.classList.contains('tab')) {
             const tabId = target.getAttribute('data-tab');
@@ -3332,6 +3333,101 @@ async performAdvancedFeatureAnalysis() {
 
         Plotly.newPlot('featureInteractionChart', [trace], layout, { responsive: true });
     }
+
+                        async performModelInterpretabilityAnalysis() {
+        try {
+            this.uiManager.showLoading('modelInterpretabilityAnalysis', 
+                'در حال تحلیل قابلیت تفسیر مدل...');
+
+            const sampleData = this.generateSampleFeatures();
+            const interpretation = this.aiModels.modelInterpreter.interpret_model(
+                this.aiModels.pricePredictor, 
+                sampleData
+            );
+
+            this.displayModelInterpretability(interpretation);
+            this.uiManager.showNotification('تحلیل قابلیت تفسیر مدل با موفقیت انجام شد', 'success');
+            
+        } catch (error) {
+            this.errorHandler.notifyUser('خطا در تحلیل قابلیت تفسیر مدل', 'error');
+        }
+    }
+
+    async performAdvancedSentimentAnalysis() {
+        try {
+            this.uiManager.showLoading('advancedSentimentAnalysis', 
+                'در حال تحلیل احساسات پیشرفته بازار...');
+
+            const newsTexts = [
+                "رشد چشمگیر شاخص بورس در معاملات امروز",
+                "نگرانی از افزایش نرخ بهره در بازارهای جهانی",
+                "پیش‌بینی مثبت تحلیلگران از صنعت پتروشیمی"
+            ];
+
+            const sentiments = newsTexts.map(text => 
+                this.aiModels.sentimentAnalyzer.analyze_sentiment(text)
+            );
+
+            this.displayAdvancedSentimentAnalysis(sentiments);
+            this.uiManager.showNotification('تحلیل احساسات بازار با موفقیت انجام شد', 'success');
+            
+        } catch (error) {
+            this.errorHandler.notifyUser('خطا در تحلیل احساسات بازار', 'error');
+        }
+    }
+
+    displayModelInterpretability(interpretation) {
+        const container = document.getElementById('modelInterpretabilityAnalysis');
+        
+        container.innerHTML = `
+            <div class="analysis-item">
+                <h3>تحلیل پیچیدگی مدل</h3>
+                <p>امتیاز پیچیدگی: ${(interpretation.model_complexity.complexity_score * 100).toFixed(1)}%</p>
+                <p>تعداد لایه‌ها: ${interpretation.model_complexity.layers}</p>
+                <p>پارامترهای تخمینی: ${interpretation.model_complexity.parameters_estimate.toLocaleString()}</p>
+            </div>
+            <div class="analysis-item">
+                <h3>الگوهای شناسایی شده</h3>
+                <ul>
+                    ${interpretation.decision_patterns.map(pattern => `<li>${pattern}</li>`).join('')}
+                </ul>
+            </div>
+            <div class="analysis-item">
+                <h3>معیارهای اطمینان</h3>
+                <p>اطمینان کلی: ${(interpretation.confidence_metrics.overall_confidence * 100).toFixed(1)}%</p>
+                <p>قابلیت اطمینان ویژگی‌ها: ${(interpretation.confidence_metrics.feature_reliability * 100).toFixed(1)}%</p>
+                <p>پایداری زمانی: ${(interpretation.confidence_metrics.temporal_stability * 100).toFixed(1)}%</p>
+            </div>
+        `;
+    }
+
+    displayAdvancedSentimentAnalysis(sentiments) {
+        const container = document.getElementById('advancedSentimentAnalysis');
+        
+        const sentimentHTML = sentiments.map((sentiment, index) => `
+            <div class="analysis-item ${sentiment.sentiment_type.includes('BULLISH') ? 'opportunity-item' : 'risk-item'}">
+                <h3>تحلیل احساسات ${index + 1}</h3>
+                <p>نوع: ${this.translateSentimentType(sentiment.sentiment_type)}</p>
+                <p>امتیاز: ${sentiment.overall_score.toFixed(3)}</p>
+                <p>اطمینان: ${(sentiment.confidence * 100).toFixed(1)}%</p>
+                <p>شدت: ${(sentiment.magnitude * 100).toFixed(1)}%</p>
+            </div>
+        `).join('');
+
+        container.innerHTML = sentimentHTML;
+    }
+
+    translateSentimentType(type) {
+        const translations = {
+            'VERY_BULLISH': 'بسیار صعودی',
+            'BULLISH': 'صعودی', 
+            'NEUTRAL': 'خنثی',
+            'BEARISH': 'نزولی',
+            'VERY_BEARISH': 'بسیار نزولی'
+        };
+        return translations[type] || type;
+    }
+}
 
                     
         }
